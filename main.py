@@ -35,6 +35,15 @@ class Landmark(BaseModel):
     y: float
     z: float
     visibility: float
+    # Real-world coordinates in meters, relative to the hip midpoint
+    # (MediaPipe's `pose_world_landmarks`) — unlike x/y/z above, these aren't
+    # skewed by camera distance/perspective, so the Node engine uses them for
+    # joint-angle metrics that need a true 3D angle (e.g. knee/ankle sagittal
+    # flexion) rather than a flat image-plane approximation. None if
+    # MediaPipe didn't return world landmarks for this frame.
+    wx: float | None = None
+    wy: float | None = None
+    wz: float | None = None
 
 
 class AnalyzeResponse(BaseModel):
@@ -91,11 +100,25 @@ async def analyze(
             landmarks=[],
         )
 
+    world_landmarks = result.pose_world_landmarks.landmark if result.pose_world_landmarks else None
+
     landmarks = []
     visibilities = []
     for idx, lm in enumerate(result.pose_landmarks.landmark):
         name = mp_pose.PoseLandmark(idx).name.lower()
-        landmarks.append(Landmark(name=name, x=lm.x, y=lm.y, z=lm.z, visibility=lm.visibility))
+        world = world_landmarks[idx] if world_landmarks else None
+        landmarks.append(
+            Landmark(
+                name=name,
+                x=lm.x,
+                y=lm.y,
+                z=lm.z,
+                visibility=lm.visibility,
+                wx=world.x if world else None,
+                wy=world.y if world else None,
+                wz=world.z if world else None,
+            )
+        )
         visibilities.append(lm.visibility)
 
     visible_count = sum(1 for v in visibilities if v >= VISIBILITY_THRESHOLD)
